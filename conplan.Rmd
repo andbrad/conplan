@@ -1,0 +1,147 @@
+---
+title: "Hot Spots"
+author: "Brad Anderson"
+date: "May 23, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# if need be, you can install the packages you don't have with the command install.packages(), 
+# with the package names in quotes:
+# install.packages(c("raster","rgdal","rasterVis","maps","rgeos","dplyr","RColorBrewer"))
+
+# Load the libraries into this R session
+library(raster)       #Main raster library with nearly all functions used in this analysis
+library(rgdal)        #Spatial library - most functions used from rgdal are for vectors (shapefiles)
+library(rasterVis)    #Useful for raster visualizations
+library(maps)         #Has a database of maps. I use this to add a map to my raster to visualize land boundaries
+library(rgeos)        #Need this library for topology operations on geometries
+library(dplyr)        #NOT spatial - this is a data wrangling library
+library(RColorBrewer) #Also not spatial - used to set the spectral color scheme 
+```
+
+
+```{r}
+# rainbow color scheme
+cols = rev(colorRampPalette(brewer.pal(11, 'Spectral'))(255)) 
+
+#setting smaller margins for plotting
+par(mar=c(2,2,1,1))
+
+```
+
+```{r}
+
+all_threats <- raster("R:/Spring2018/ESM270/Week8_R_hotspots/Threats_data/full_modelnv.tif")
+
+plot(all_threats,col=cols)
+#zoom(all_threats,col=cols)
+#plot(all_threats,col=cols,ext=extent(-121,-117,32,35),main="Cumulative Threats")
+```
+
+```{r}
+all_threats
+```
+
+```{r}
+hist(all_threats,main="Cumulative Threats Frequency")
+```
+
+```{r}
+
+cellStats(all_threats,mean)
+summary(all_threats)
+
+```
+
+```{r}
+
+# Make sure the pathname to the data is correct
+all_spp <- raster("R:/Spring2018/ESM270/Week8_R_hotspots/ca_curr_sp_rich.tif")
+
+all_spp #The resulution is in degrees, as compared to the km from the threats layer. The threats layer has a finer resoltion
+
+plot(all_spp,col=cols)
+```
+Because threats and species have different resolutions and extents, thus we need to crop and change resolution.
+
+```{r}
+#Crop from x to y. In this case, crop threats down to the species layer.
+
+threats_crop <- crop(all_threats,all_spp) #Crop the threats layer to the same extent at species
+
+# NOTE: the progress='text' argument is a great tool: it prints out the progress
+# of a longer-running function into the console, so you can see how the operation is going
+
+# the method='ngb' argument specifies that we want to use a nearest neighbor algorithm to resample, instead of interpolation
+spp_res <- resample(all_spp,threats_crop,method='ngb',progress='text')#In this case we use nearest neighbor because we do not want to blend the cell values together, for example if the value of two cells are 10 and 1, interpolation would put a value of 5 for the value at the border between these two cells.
+```
+
+
+```{r}
+spp_threat_stack <- stack(threats_crop,spp_res)
+plot(spp_threat_stack,col=cols) #plots the stacked layers one after the other
+
+```
+
+```{r}
+hist(spp_res,main="Species Raster Values")
+```
+
+```{r}
+# notice that in the following, we are OVERWRITING the original spp_res object.
+# This is okay in this instance since we won't be using the old version, but
+# often it is better to assign any output of a function to a new variable or object
+spp_res <- reclassify(spp_res,rcl=c(-Inf,0,NA)) #negative infinite to 0 we are setting to NA
+hist(spp_res,main="Species Raster Values, Zeroes Removed") # did the function do what we were hoping?
+```
+
+```{r}
+#?quantile what does the quantile function do?
+spp_cutoff <- quantile(spp_res,0.8) # Find the value of the 80th percentile
+spp_maxVal <- cellStats(spp_res,max) #find the maximum
+
+# Our reclassification matrix. This reclassifys the 80th percentile
+rcl_mat <- c(-Inf,spp_cutoff,0,
+            spp_cutoff,spp_maxVal,1)
+
+# Reclassify the species layer
+spp_binary <- reclassify(spp_res,rcl=rcl_mat)
+```
+
+```{r}
+# Because we have binary data now, I want to change the color scheme again
+binary_cols <- c("white","firebrick")
+plot(spp_binary,col=binary_cols,legend=F,main="Top 20% of Species Richness")
+map('world',fill=T,add=T,col='gray')
+```
+
+```{r}
+
+threat_binary <- reclassify(threats_crop,rcl=c(-Inf, quantile(threats_crop, 0.8), 0, quantile(threats_crop, 0.8), cellStats(threats_crop, max), 1))
+
+plot(threat_binary,col=binary_cols,legend=F,main="Top 20% of Threats")
+map('world',fill=T,add=T,col='gray')
+```
+
+```{r}
+##Function to add x + y
+
+addXY <- function(x, y) {
+  return(x+y)
+}
+
+hotspots <- overlay(spp_binary,threat_binary,fun=addXY)
+
+# color breakpoints. We need three colors now! (cell values of 0,1,or 2)
+brks_hotspots <- seq(0,3,length.out=4) 
+hotspot_cols <- c("white","lightblue","firebrick") #
+
+# plot the hotspots!
+plot(hotspots,col=hotspot_cols,legend=F,main="Hotspots");map('world',fill=T,add=T,col='gray80')
+```
+

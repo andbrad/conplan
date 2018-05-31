@@ -1,0 +1,175 @@
+---
+title: "Climate Threats"
+author: "Brad Anderson"
+date: "May 30, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# if need be, you can install the packages you don't have with the command install.packages(), 
+# with the package names in quotes:
+# install.packages(c("raster","rgdal","rasterVis","maps","rgeos","dplyr","RColorBrewer"))
+
+# Load the libraries into this R session
+library(raster)       #Main raster library with nearly all functions used in this analysis
+library(rgdal)        #Spatial library - most functions used from rgdal are for vectors (shapefiles)
+library(rasterVis)    #Useful for raster visualizations
+library(maps)         #Has a database of maps. I use this to add a map to my raster to visualize land boundaries
+library(rgeos)        #Need this library for topology operations on geometries
+library(dplyr)        #NOT spatial - this is a data wrangling library
+library(RColorBrewer) #Also not spatial - used to set the spectral color scheme 
+library(sf)
+library(sp)
+library(gstat)
+library(tmap)
+```
+
+```{r}
+
+#Load Data
+
+#Threats
+acid <- raster("R:/Spring2018/ESM270/Week8_R_hotspots/Threats_data/impact_acid.tif")
+uv <- raster("R:/Spring2018/ESM270/Week8_R_hotspots/Threats_data/impact_uv.tif")
+sst <- raster("R:/Spring2018/ESM270/Week8_R_hotspots/Threats_data/impact_sst.tif")
+
+#Species
+all_spp <- raster("R:/Spring2018/ESM270/Week8_R_hotspots/ca_curr_sp_rich.tif")
+
+```
+
+```{r stack approach, eval=FALSE, include=FALSE}
+
+#### Function to output a binary raster based on a user-given quantile (default is top 20%) ###
+reclassify_topx <- function(rast,quant=0.8) {
+  topx <- quantile(rast,quant) #find the 80% quantile of the raster values
+  maxVal <- cellStats(rast,max) #find the maximum
+  rcl <- c(-Inf,topx,0,
+            topx,maxVal,1) # reclassify matrix (see help file for ?reclassify)
+  out <- reclassify(rast,rcl=rcl)
+  return(out) # returns the new binary raster
+}
+
+threat_stack <- stack(acid, uv, sst)
+
+threat_stack_clean <- reclassify(threat_stack,rcl=c(-Inf,0,NA)) # reclass 0 to NA
+
+hist(threat_stack_clean)
+
+threat_stack_top <- reclassify_topx(threat_stack_clean,quant=0.8)
+
+
+
+
+
+```
+```{r}
+
+#### Function to output a binary raster based on a user-given quantile (default is top 20%) ###
+reclassify_topx <- function(rast,quant=0.8) {
+  topx <- quantile(rast,quant) #find the 80% quantile of the raster values
+  maxVal <- cellStats(rast,max) #find the maximum
+  rcl <- c(-Inf,topx,0,
+            topx,maxVal,1) # reclassify matrix (see help file for ?reclassify)
+  out <- reclassify(rast,rcl=rcl)
+  return(out) # returns the new binary raster
+}
+
+#acid_reclass <- reclassify(acid,rcl=c(-Inf,0,NA)) # reclass 0 to NA
+#uv_reclass <- reclassify(uv,rcl=c(-Inf,0,NA)) # reclass 0 to NA
+#sst_reclass <- reclassify(sst,rcl=c(-Inf,0,NA)) # reclass 0 to NA
+
+acid_top <- reclassify_topx(acid,quant=0.8)
+uv_top <- reclassify_topx(uv,quant=0.8)
+sst_top <- reclassify_topx(sst,quant=0.8)
+
+
+##Function to add x + y
+
+addXYZ <- function(x, y, z) {
+  return(x+y+z)
+}
+
+cc_threats <- addXYZ(acid_top,uv_top, sst_top)
+
+
+#### Crop, resample, and reclassify Top 20% of Species###
+all_spp <- reclassify(all_spp,rcl=c(-Inf,0,NA)) # reclass 0 to NA
+threats_crop <- crop(cc_threats,all_spp) # crop threats to species
+spp_res <- resample(all_spp,threats_crop,method='ngb') # resample species to threat's resolution
+all_spp_top20 <- reclassify_topx(spp_res,quant=0.8)
+
+
+```
+
+
+```{r}
+
+### overlay and plot the hotspots ###
+addXY <- function(x, y) {
+  return(x+y)
+}
+
+hotspots <- overlay(threats_crop, all_spp_top20, fun=addXY)
+
+# color breakpoints. We need three colors now! (cell values of 0,1,or 2)
+brks_hotspots <- seq(0,3,length.out=4) 
+hotspot_cols <- c("white","lightblue","firebrick") #
+
+# plot the hotspots!
+#plot(hotspots,col=hotspot_cols,legend=F,main="Hotspots");map('world',fill=T,add=T,col='gray80')
+
+cc_hotspots <- overlay(threats_crop, all_spp_top20, fun=addXY)
+
+```
+
+```{r mpa vector}
+
+mpa <- readOGR(dsn = ".", layer = "MPA_CA_Existing_160301")
+sanctuary <- readOGR(dsn = ".", layer = "National Marine Sanctuaries")
+
+
+mpa_transform <- spTransform(mpa, crs(hotspots))
+sanctuary_transform <- spTransform(mpa, crs(hotspots))
+
+
+plot(mpa_transform)
+
+```
+
+```{r}
+
+###Climate Change Threat Layer (not top 20%)
+
+cc_all <- addXYZ(acid,uv, sst)
+
+
+# extract values with polygons
+
+#plot(r)
+#plot(polys, add=TRUE)
+mpa_overlay <- extract(cc_all, mpa_transform)
+mpa_overlay
+# mean for each polygon
+means <- unlist(lapply(mpa_overlay, function(x) if (!is.null(x)) mean(x, na.rm=TRUE) else NA ))
+
+# v <- extract(r, polys, cellnumbers=TRUE)
+
+# weighted mean
+# v <- extract(r, polys, weights=TRUE, fun=mean)
+# equivalent to:
+# v <- extract(r, polys, weights=TRUE)
+# sapply(v, function(x) if (!is.null(x)) {sum(apply(x, 1, prod)) / sum(x[,2])} else NA)
+
+```
+
+```{r}
+###Add threat means to raster layer
+
+threat_means <- rbind(mpa_transform, means)
+```
+

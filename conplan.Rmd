@@ -145,3 +145,7 @@ hotspot_cols <- c("white","lightblue","firebrick") #
 plot(hotspots,col=hotspot_cols,legend=F,main="Hotspots");map('world',fill=T,add=T,col='gray80')
 ```
 
+
+
+
+

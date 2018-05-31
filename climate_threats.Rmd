@@ -79,13 +79,13 @@ reclassify_topx <- function(rast,quant=0.8) {
   return(out) # returns the new binary raster
 }
 
-#acid_reclass <- reclassify(acid,rcl=c(-Inf,0,NA)) # reclass 0 to NA
-#uv_reclass <- reclassify(uv,rcl=c(-Inf,0,NA)) # reclass 0 to NA
-#sst_reclass <- reclassify(sst,rcl=c(-Inf,0,NA)) # reclass 0 to NA
+acid_reclass <- reclassify(acid,rcl=c(-Inf,0,NA)) # reclass 0 to NA
+uv_reclass <- reclassify(uv,rcl=c(-Inf,0,NA)) # reclass 0 to NA
+sst_reclass <- reclassify(sst,rcl=c(-Inf,0,NA)) # reclass 0 to NA
 
-acid_top <- reclassify_topx(acid,quant=0.8)
-uv_top <- reclassify_topx(uv,quant=0.8)
-sst_top <- reclassify_topx(sst,quant=0.8)
+acid_top <- reclassify_topx(acid_reclass,quant=0.8)
+uv_top <- reclassify_topx(uv_reclass,quant=0.8)
+sst_top <- reclassify_topx(sst_reclass,quant=0.8)
 
 
 ##Function to add x + y
@@ -118,10 +118,10 @@ hotspots <- overlay(threats_crop, all_spp_top20, fun=addXY)
 
 # color breakpoints. We need three colors now! (cell values of 0,1,or 2)
 brks_hotspots <- seq(0,3,length.out=4) 
-hotspot_cols <- c("white","lightblue","firebrick") #
+hotspot_cols <- c("white","white","firebrick") #
 
 # plot the hotspots!
-#plot(hotspots,col=hotspot_cols,legend=F,main="Hotspots");map('world',fill=T,add=T,col='gray80')
+plot(hotspots,col=hotspot_cols,legend=F,main="Hotspots");map('world',fill=T,add=T,col='gray80')
 
 cc_hotspots <- overlay(threats_crop, all_spp_top20, fun=addXY)
 

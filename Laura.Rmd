@@ -394,9 +394,10 @@ climate_top20 <- reclassify_topx(climate_threats,quant=0.8)
 
 #add top 20% of species to top 20% of climate
 hotspots <- overlay(spp_binary, climate_top20, fun=addXY)
+#hotspots <- reclassify(hotspots_orginal,rcl=c(-Inf,1.49,0))
 
 brks_hotspots <- seq(0,3,length.out=4) 
-hotspot_cols <- c("white","white","red") #firebrick shows where top20% of threats overlap with top 20% of species richness. Not that many places...
+hotspot_cols <- c("white","white","cyan") #firebrick shows where top20% of threats overlap with top 20% of species richness. Not that many places...
 
 # plot the hotspots!
 plot(hotspots,col=hotspot_cols,legend=F,main="Hotspots");map('world',fill=T,add=T,col='gray80')
@@ -407,69 +408,38 @@ plot(hotspots,col=hotspot_cols,legend=F,main="Hotspots");map('world',fill=T,add=
 ```{r}
 hs_crop_sanc <- crop(hotspots,sanctuary_transform) #crops hotspots at extent of sanctuaries
 hs_crop_mpa <- crop(hotspots, mpa_transform) #crops hotspots at extent of mpas
-hotspot_crop_wa <- crop(hotspots, extent(-130,-122, 40, 50)) #crops hotspots of mean threats and top 20% of species richness at extent of Washington & Oregon coastline
-threat_crop_wa <- crop(climate_top20, extent(-130,-122, 40, 50)) #crops mean threats at extent of Washington & Oregon coastline
+hotspot_crop_wa <- crop(hotspots, extent(-130,-110, 34, 50)) #crops hotspots of mean threats and top 20% of species richness at extent of Washington & Oregon coastline
+threat_crop_wa <- crop(climate_top20, extent(-130,-110, 34, 50)) #crops mean threats at extent of Washington & Oregon coastline
 
-plot(hotspot_crop_wa, col=hotspot_cols,legend=T,main="Hotspots");map('world',fill=T,add=T,col='gray80')
+mpa_top20 <- spTransform(mpa, crs(hotspots))
+
+#plot(hotspot_crop_wa, col=hotspot_cols,legend=T,main="Hotspots");map('world',fill=T,add=T,col='gray80')
 
 ```
 
 
 ```{r}
 
-tm_mean <- tm_shape(hotspot_crop_wa)+ #adds mean threat to map
-  tm_raster("layer", #displays as raster by name of element in raster
-            palette = hotspot_cols) #color palette
-tm_shape(us_base)+ #adds basemap
-  tm_polygons()+ #displays as polygon
-tm_shape(sanctuary_transform)+ #adds sanctuaries
-  tm_borders(NA)+ #only displays borders
-tm_style_white() + #color scheme of whole map (white backgroud, grey fill of US)
-  tm_legend(text.size=1,
-    title.size=1.3,
-    position = c(0.68,0.48), 
-    bg.alpha=.2, 
-    frame="gray50", 
-    height=.4, 
-    hist.width=.28,
-    hist.height=.2, 
-    hist.bg.color="gray60", 
-    hist.bg.alpha=.5)+
-tm_compass(type = "arrow", #style of compass
-           position = c("right", "top"),
-           color.light = "black", #makes whole thing black
-           size = 1)+
-tm_scale_bar(position = c(0.55,0.9))
-
-tm_hotspot <- tm_shape(hotspot_crop_ca)+
+tm_top20 <- tm_shape(hotspot_crop_wa)+
   tm_raster("layer",
-            palette = cols,
-            title = "Mean Threat",
-            breaks=c(0.5, 0.6, 0.7, 0.8, 0.9),
-            legend.hist = TRUE)+
+            palette = hotspot_cols, legend.show = FALSE)+
 tm_shape(us_base)+
   tm_polygons()+
-tm_shape(sanctuary_transform)+
-  tm_borders(NA)+
+tm_shape(mpa_top20)+
+  tm_fill(col="red3")+
 tm_style_white() +
-  tm_legend(text.size=1,
-    title.size=1.3,
-    position = c(0.68,0.48), 
-    bg.alpha=.2, 
-    frame="gray50", 
-    height=.4, 
-    hist.width=.28,
-    hist.height=.2, 
-    hist.bg.color="gray60", 
-    hist.bg.alpha=.5)+
 tm_compass(type = "arrow",
-           position = c("right", "top"),
+           position = c("right", "bottom"),
            color.light = "black",
            size = 1)+
-tm_scale_bar(position = c(0.55,0.9))
+tm_scale_bar(position = c(0.55,0.025))
 
-combined_map <- tmap_arrange(tm_mean, tm_hotspot, asp = NA) #displays the two maps next to each other
+tm_top20
 
 ```
 
+
+```{r}
+save_tmap(tm_top20, "tm_top20_BIG.png")
+```
 

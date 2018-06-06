@@ -33,12 +33,12 @@ library(tmap)
 #Load Data
 
 #Threats
-acid <- raster("R:/Spring2018/ESM270/Week8_R_hotspots/Threats_data/impact_acid.tif")
-uv <- raster("R:/Spring2018/ESM270/Week8_R_hotspots/Threats_data/impact_uv.tif")
-sst <- raster("R:/Spring2018/ESM270/Week8_R_hotspots/Threats_data/impact_sst.tif")
+acid <- raster("~/github/conplan/impact_acid.tif")
+uv <- raster("~/github/conplan/impact_uv.tif")
+sst <- raster("~/github/conplan/impact_sst.tif")
 
 #Species
-all_spp <- raster("R:/Spring2018/ESM270/Week8_R_hotspots/ca_curr_sp_rich.tif")
+all_spp <- raster("~/github/conplan/ca_curr_sp_rich.tif")
 
 ```
 

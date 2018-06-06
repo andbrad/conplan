@@ -1,0 +1,475 @@
+---
+title: "Week_8_Climate"
+author: "Laura Wolf"
+date: "5/30/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##Load Packages
+
+```{r load_packages, include=FALSE}
+
+# Load the libraries into this R session
+library(raster)       #Main raster library with nearly all functions used in this analysis
+library(rgdal)        #Spatial library - most functions used from rgdal are for vectors (shapefiles)
+library(rasterVis)    #Useful for raster visualizations
+library(maps)         #Has a database of maps. I use this to add a map to my raster to visualize land boundaries
+library(rgeos)        #Need this library for topology operations on geometries
+library(dplyr)        #NOT spatial - this is a data wrangling library
+library(RColorBrewer) #Also not spatial - used to set the spectral color scheme
+library(sp)
+library(tmaptools)
+library("tmap")
+
+```
+
+##Get some fun colors
+
+```{r colors}
+
+# rainbow color scheme
+cols = rev(colorRampPalette(brewer.pal(11, 'Spectral'))(255)) 
+
+#setting smaller margins for plotting
+par(mar=c(2,2,1,1))
+
+```
+
+##Import Data
+
+###Import species data
+
+```{r import_species}
+
+# Make sure the pathname to the data is correct
+#Species
+all_spp <- raster("~/github/conplan/ca_curr_sp_rich.tif")
+
+all_spp #gives raster info
+
+
+plot(all_spp,col=cols) #plots raster
+
+#compare characteristics of species data to threats data below
+#resolution is 0.5 degree squares, much lower than threats
+#extent is different as well
+#same projection as threats
+#We need to crop and resample. Threats has larger extent, so we need change extent of threats. Species has lower resolution so we need to resample species based on threats. We will do this down below
+
+```
+
+###Import climate threats data
+
+```{r import_threats}
+
+# Change the path to the path to the lab data
+
+
+#Threats
+acid <- raster("~/github/conplan/impact_acid.tif")
+uv <- raster("~/github/conplan/impact_uv.tif")
+sst <- raster("~/github/conplan/impact_sst.tif")
+
+
+#View characteristics of all_threats
+acid
+uv
+sst
+
+```
+
+### Stack threats
+
+```{r stack_threats}
+
+cc_threat_stack <- stack(acid, uv, sst) #stacks threats so you can just call this instead of calling things individually for each threat
+plot(cc_threat_stack,col=cols) #plots all climate threats next to each other
+
+```
+
+##Explore threat data
+
+```{r explore_threat_data}
+
+hist(cc_threat_stack)
+
+```
+
+Crazy Numbers! Let's reclassify them as NA and see what happens
+
+###Reclassify Crazy Numbers
+
+```{r reclass_cc_threats}
+
+#get rid of crazy numbers, then reexamine histogram
+
+acid_rcl <- reclassify(acid,rcl=c(-Inf,0,NA)) 
+uv_rcl <- reclassify(uv,rcl=c(-Inf,0,NA))
+sst_rcl <- reclassify(sst,rcl=c(-Inf,0,NA))
+all_cc <- stack(acid_rcl, uv_rcl, sst_rcl)
+hist(all_cc)
+cellStats(all_cc,mean) 
+cellStats(all_cc, sd) 
+cellStats(all_cc, max)
+
+```
+
+That's better. Now let's do some cool stuff!
+
+##Hotspots
+
+###Function
+
+```{r quantile_function}
+
+#Makes a function to return a binary raster where the top X% of raster values are given a value of 1
+
+reclassify_topx <- function(rast,quant=0.8) {
+  topx <- quantile(rast,quant) #find the X% quantile of the raster values
+  maxVal <- cellStats(rast,max) #find the maximum
+  rcl <- c(-Inf,topx,0,
+            topx,maxVal,1) # reclassify matrix (see help file for ?reclassify) to set values below X% quantile as 0, values above Xth quantile below max value as 1
+  out <- reclassify(rast,rcl=rcl)
+  return(out) # returns the new binary raster
+}
+
+```
+
+###Apply function to climate threats
+
+```{r reclass_cc_top_20}
+
+#apply function from above to get top 20% of climate change threats and give them value of 1, give everything else value of 0
+acid_top20 <- reclassify_topx(acid_rcl,quant=0.8)
+uv_top20 <- reclassify_topx(uv_rcl,quant=0.8)
+sst_top20 <- reclassify_topx(sst_rcl,quant=0.8)
+
+```
+
+###Combine climate threats
+
+```{r merge_threats}
+
+##FUNCTION TO ADD X + Y + Z
+addXYZ <- function(x,y,z){
+  return(x+y+z)
+  }
+
+combine_cc <- addXYZ(acid_top20,uv_top20,sst_top20) #adds top 20% of climate change threats together to get cumulative climate change threat layer.
+plot(combine_cc, col=cols)
+
+```
+
+###Crop and Resample
+
+####Crop
+
+```{r crop}
+
+threats_crop <- crop(combine_cc,all_spp) #Crop the threats layer to the same extent as species
+
+```
+
+####Resample
+
+```{r resample}
+
+spp_res <- resample(all_spp,combine_cc,method='ngb',progress='text') #resample species layer based on threats layer. the progress='text' argument prints out the progress of a longer-running function into the console, so you can see how the operation is going
+# the method='ngb' argument specifies that we want to use a nearest neighbor algorithm to resample, instead of interpolation. interpolation would take average values.
+
+```
+
+```{r zeros}
+
+#reclass zeros as NA
+# we are OVERWRITING the original spp_res object.
+# This is okay in this instance since we won't be using the old version, but
+# often it is better to assign any output of a function to a new variable or object
+
+spp_res <- reclassify(spp_res,rcl=c(-Inf,0,NA)) #default is inclusive
+hist(spp_res,main="Species Raster Values, Zeroes Removed") # did the function do what we were hoping? Compare histogram to the one above. Large column at zero has gone to zero!
+
+```
+
+###Make species data binary
+
+```{r binary_species}
+
+spp_binary <- reclassify_topx(spp_res, quant = 0.8) #applies function to species data to find the top 20% and set that to 1, with everything else set to 0
+
+```
+
+###Combine species and threats layers to get hotspots
+
+```{r overlay, eval=FALSE, include=FALSE}
+
+##FUNCTION TO ADD X + Y
+addXY <- function(x,y){
+  return(x+y)
+  }
+
+hotspots <- overlay(spp_binary, climate_top20, fun=addXY) #adds top 20% of species to top 20% of climate threats
+
+# color breakpoints. We need three colors now! (cell values of 0,1,or 2)
+brks_hotspots <- seq(0,3,length.out=4) 
+hotspot_cols <- c("white","white","red") #firebrick shows where top20% of threats overlap with top 20% of species richness. Not that many places...
+
+# plot the hotspots!
+plot(hotspots,col=hotspot_cols,legend=F,main="Hotspots");map('world',fill=T,add=T,col='gray80')
+
+```
+
+
+##Mean Threat
+
+```{r mean_threat}
+
+mean_threat <- overlay(acid_rcl, uv_rcl, sst_rcl, fun=function(x,y,z) {return((x+y+z)/3)}) #makes a new raster with the average threat value in cell
+plot(mean_threat, col=cols)
+
+```
+
+
+```{r crop_mean}
+
+mean_crop <- crop(mean_threat,spp_binary) #crop mean to same extent at top 20% of species
+
+```
+
+###Combine mean threats with top 20% of hotspots
+
+```{r overlay_mean}
+
+
+
+combine_mean_spp <- overlay(spp_binary, mean_crop, fun=addXY) #adds the mean threat value for each cell to the binary species values of the top 20% of species richness. This gives values from 0 ~ 1.8
+
+combine_mean_spp_1 <- combine_mean_spp - 1 #subtracts 1 from the above raster to get values below 1
+
+hotspots_mean <- reclassify(combine_mean_spp_1,rcl=c(-Inf,0,NA)) #assigns negative values as NA
+
+
+
+# plot the hotspots!
+plot(hotspots_mean,col=cols,legend=T,main="Hotspots");map('world',fill=T,add=T,col='gray80')
+
+```
+
+##MPAs
+
+###Import data
+
+```{r import_mpa}
+
+#This is how you import shapefiles. See basemap example below for better, more specific method. The "." implies that the file is in the working folder. Layer is the specific layer name. 
+mpa <- readOGR(dsn = ".", layer = "MPA_CA_Existing_160301")
+sanctuary <- readOGR(dsn = ".", layer = "National Marine Sanctuaries")
+
+# Transforms mpa layer and sactuary layer into same projection as mean threat layer
+mpa_transform <- spTransform(mpa, crs(mean_threat))
+sanctuary_transform <- spTransform(sanctuary, crs(mean_threat))
+
+
+```
+
+###Look at Data
+
+```{r mpa_plot}
+
+plot(mpa_transform);map('world',fill=T,add=T,col='gray80')
+plot(sanctuary_transform, col=cols,main="National Marine Sanctuaries");map('world', fill=T,add=T,col='gray80')
+
+```
+
+### Crop 
+
+```{r crop_means}
+
+mean_crop_sanc <- crop(mean_threat,sanctuary_transform) #crops mean threat at extent of sanctuaries
+mean_crop_mpa <- crop(mean_threat, mpa_transform) #crops mean threat at extent of mpas
+hotspot_crop_ca <- crop(hotspots_mean, extent(-126,-117, 33, 42)) #crops hotspots of mean threats and top 20% of species richness at extent of California coastline
+mean_crop_ca <- crop(mean_threat, extent(-126,-117, 33, 42)) #crops mean threats at extent of California coastline
+
+plot(hotspot_crop_ca, col=cols,legend=T,main="Hotspots");map('world',fill=T,add=T,col='gray80')
+
+```
+###Import Basemap for Figure
+
+```{r import_basemap}
+
+#("C:\Users\Brad\Documents\github\conplan\cb_2017_us_nation_5m")
+
+#Better way of importing shapefiles
+dir_spatial   <- '/Users/Brad/Documents/github/conplan/cb_2017_us_nation_5m' #Location of file
+layer_us <- 'cb_2017_us_nation_5m' #name of file
+
+us_base <- readOGR(dsn = dir_spatial, layer = layer_us, stringsAsFactors = FALSE)
+
+us_transform <- spTransform(us_base, crs(mean_threat)) #transforms projection to same as mean_threat
+
+```
+
+###Map Results!
+
+```{r tmap}
+
+tm_mean <- tm_shape(mean_crop_ca)+ #adds mean threat to map
+  tm_raster("layer", #displays as raster by name of element in raster
+            palette = cols, #color palette
+            title = "Mean Threat", #title that shows up in legend
+            breaks=c(0.5, 0.6, 0.7, 0.8, 0.9), #breaks that show up in legend
+            legend.hist = TRUE)+ #shows histogram
+tm_shape(us_base)+ #adds basemap
+  tm_polygons()+ #displays as polygon
+tm_shape(sanctuary_transform)+ #adds sanctuaries
+  tm_borders(NA)+ #only displays borders
+tm_style_white() + #color scheme of whole map (white backgroud, grey fill of US)
+  tm_legend(text.size=1,
+    title.size=1.3,
+    position = c(0.68,0.48), 
+    bg.alpha=.2, 
+    frame="gray50", 
+    height=.4, 
+    hist.width=.28,
+    hist.height=.2, 
+    hist.bg.color="gray60", 
+    hist.bg.alpha=.5)+
+tm_compass(type = "arrow", #style of compass
+           position = c("right", "top"),
+           color.light = "black", #makes whole thing black
+           size = 1)+
+tm_scale_bar(position = c(0.55,0.9))
+
+tm_hotspot <- tm_shape(hotspot_crop_ca)+
+  tm_raster("layer",
+            palette = cols,
+            title = "Mean Threat",
+            breaks=c(0.5, 0.6, 0.7, 0.8, 0.9),
+            legend.hist = TRUE)+
+tm_shape(us_base)+
+  tm_polygons()+
+tm_shape(sanctuary_transform)+
+  tm_borders(NA)+
+tm_style_white() +
+  tm_legend(text.size=1,
+    title.size=1.3,
+    position = c(0.68,0.48), 
+    bg.alpha=.2, 
+    frame="gray50", 
+    height=.4, 
+    hist.width=.28,
+    hist.height=.2, 
+    hist.bg.color="gray60", 
+    hist.bg.alpha=.5)+
+tm_compass(type = "arrow",
+           position = c("right", "top"),
+           color.light = "black",
+           size = 1)+
+tm_scale_bar(position = c(0.55,0.9))
+
+combined_map <- tmap_arrange(tm_mean, tm_hotspot, asp = NA) #displays the two maps next to each other
+
+
+```
+
+```{r save_map}
+
+save_tmap(tm_hotspot, "wk_8_hotspots.png")
+save_tmap(tm_mean, "wk_8_mean.png")
+
+```
+####FINISH HOT SPOTS MAP
+
+```{r}
+
+#Combine three climate threats, then find the top 20% highest threat areas
+
+climate_threats <- addXYZ(acid_rcl,uv_rcl,sst_rcl)
+climate_top20 <- reclassify_topx(climate_threats,quant=0.8)
+
+
+#add top 20% of species to top 20% of climate
+hotspots <- overlay(spp_binary, climate_top20, fun=addXY)
+
+brks_hotspots <- seq(0,3,length.out=4) 
+hotspot_cols <- c("white","white","red") #firebrick shows where top20% of threats overlap with top 20% of species richness. Not that many places...
+
+# plot the hotspots!
+plot(hotspots,col=hotspot_cols,legend=F,main="Hotspots");map('world',fill=T,add=T,col='gray80')
+
+```
+
+
+```{r}
+hs_crop_sanc <- crop(hotspots,sanctuary_transform) #crops hotspots at extent of sanctuaries
+hs_crop_mpa <- crop(hotspots, mpa_transform) #crops hotspots at extent of mpas
+hotspot_crop_wa <- crop(hotspots, extent(-130,-122, 40, 50)) #crops hotspots of mean threats and top 20% of species richness at extent of Washington & Oregon coastline
+threat_crop_wa <- crop(climate_top20, extent(-130,-122, 40, 50)) #crops mean threats at extent of Washington & Oregon coastline
+
+plot(hotspot_crop_wa, col=hotspot_cols,legend=T,main="Hotspots");map('world',fill=T,add=T,col='gray80')
+
+```
+
+
+```{r}
+
+tm_mean <- tm_shape(hotspot_crop_wa)+ #adds mean threat to map
+  tm_raster("layer", #displays as raster by name of element in raster
+            palette = hotspot_cols) #color palette
+tm_shape(us_base)+ #adds basemap
+  tm_polygons()+ #displays as polygon
+tm_shape(sanctuary_transform)+ #adds sanctuaries
+  tm_borders(NA)+ #only displays borders
+tm_style_white() + #color scheme of whole map (white backgroud, grey fill of US)
+  tm_legend(text.size=1,
+    title.size=1.3,
+    position = c(0.68,0.48), 
+    bg.alpha=.2, 
+    frame="gray50", 
+    height=.4, 
+    hist.width=.28,
+    hist.height=.2, 
+    hist.bg.color="gray60", 
+    hist.bg.alpha=.5)+
+tm_compass(type = "arrow", #style of compass
+           position = c("right", "top"),
+           color.light = "black", #makes whole thing black
+           size = 1)+
+tm_scale_bar(position = c(0.55,0.9))
+
+tm_hotspot <- tm_shape(hotspot_crop_ca)+
+  tm_raster("layer",
+            palette = cols,
+            title = "Mean Threat",
+            breaks=c(0.5, 0.6, 0.7, 0.8, 0.9),
+            legend.hist = TRUE)+
+tm_shape(us_base)+
+  tm_polygons()+
+tm_shape(sanctuary_transform)+
+  tm_borders(NA)+
+tm_style_white() +
+  tm_legend(text.size=1,
+    title.size=1.3,
+    position = c(0.68,0.48), 
+    bg.alpha=.2, 
+    frame="gray50", 
+    height=.4, 
+    hist.width=.28,
+    hist.height=.2, 
+    hist.bg.color="gray60", 
+    hist.bg.alpha=.5)+
+tm_compass(type = "arrow",
+           position = c("right", "top"),
+           color.light = "black",
+           size = 1)+
+tm_scale_bar(position = c(0.55,0.9))
+
+combined_map <- tmap_arrange(tm_mean, tm_hotspot, asp = NA) #displays the two maps next to each other
+
+```
+
+
